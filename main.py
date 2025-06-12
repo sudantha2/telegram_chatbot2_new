@@ -18,7 +18,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 keep_alive()
 
 # Environment variables - Direct assignment
-os.environ['TOKEN'] = '7799161053:AAEJzozQnJcQ3wsOtUTKLReYVuuDNJEKZoo'
+os.environ['TOKEN'] = '7642209531:AAEoyJ8D_sfX6wM49xdXcpbpZ-gDRKMrJB0'
 os.environ['MONGO_URI'] = 'mongodb+srv://Sudantha123:sudantha2007@cluster0.qarydyw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0'
 os.environ['TOGETHER_API_KEY'] = 'bd3a8117107d09348c28f43d60f29c2045085159855ca76b9e6426ce0c3850e4'
 os.environ['PIXABAY_API_KEY'] = '35389728-c4a24f22d93bd62fa62b389c1'
