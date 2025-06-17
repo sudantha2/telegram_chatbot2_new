@@ -587,6 +587,7 @@ Enjoy and have a wonderful day! 🌸😊
 ┣━ `/filter [word1,word2,word3]` - Save filter with multiple triggers
 ┣━ `/del <keyword>` - Delete a filter
 ┣━ `/del [word1,word2,word3]` - Delete multiple filters
+┣━ `/del_all` - Delete all filters (admins only)
 ┗━ `/filters` - List all filters in group
 
 🎯 **Quiz Commands:**
@@ -1548,39 +1549,200 @@ async def stick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Delete the command message
     await message.delete()
 
-    # Create image
+    # Create image with modern design
     width, height = 512, 512
-    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD']
-    bg_color = random.choice(colors)
-
-    img = Image.new('RGB', (width, height), bg_color)
-    draw = ImageDraw.Draw(img)
-
-    # Calculate font size based on text length
-    font_size = min(80, int(400 / len(text)))
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-    except:
-        font = ImageFont.load_default()
-
-    # Center the text
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    x = (width - text_width) / 2
-    y = (height - text_height) / 2
-
-    # Add text with outline
-    outline_color = '#FFFFFF'
-    for offset in range(-2, 3):
-        draw.text((x + offset, y), text, font=font, fill=outline_color)
-        draw.text((x, y + offset), text, font=font, fill=outline_color)
-
-    draw.text((x, y), text, font=font, fill='#000000')
-
+    frame_width = 20  # White frame thickness
+    corner_radius = 40  # Rounded corner radius
+    
+    # Modern gradient colors
+    gradients = [
+        ['#667eea', '#764ba2'],  # Purple-blue
+        ['#f093fb', '#f5576c'],  # Pink gradient
+        ['#4facfe', '#00f2fe'],  # Blue gradient
+        ['#43e97b', '#38f9d7'],  # Green gradient
+        ['#fa709a', '#fee140'],  # Pink-yellow
+        ['#a8edea', '#fed6e3'],  # Soft gradient
+        ['#ff9a9e', '#fecfef'],  # Soft pink
+        ['#667eea', '#764ba2'],  # Blue-purple
+    ]
+    
+    selected_gradient = random.choice(gradients)
+    
+    # Create base image with transparency
+    img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    
+    # Create a mask for rounded corners
+    mask = Image.new('L', (width, height), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    
+    # Draw rounded rectangle mask
+    mask_draw.rounded_rectangle(
+        [frame_width, frame_width, width - frame_width, height - frame_width],
+        radius=corner_radius,
+        fill=255
+    )
+    
+    # Create gradient background
+    for y in range(height):
+        # Calculate gradient ratio
+        ratio = y / height
+        
+        # Parse hex colors
+        color1 = tuple(int(selected_gradient[0][i:i+2], 16) for i in (1, 3, 5))
+        color2 = tuple(int(selected_gradient[1][i:i+2], 16) for i in (1, 3, 5))
+        
+        # Interpolate between colors
+        r = int(color1[0] * (1 - ratio) + color2[0] * ratio)
+        g = int(color1[1] * (1 - ratio) + color2[1] * ratio)
+        b = int(color1[2] * (1 - ratio) + color2[2] * ratio)
+        
+        # Draw gradient line
+        draw = ImageDraw.Draw(img)
+        draw.line([(0, y), (width, y)], fill=(r, g, b, 255))
+    
+    # Apply the rounded corner mask
+    img.putalpha(mask)
+    
+    # Add white frame
+    frame_img = Image.new('RGBA', (width, height), (255, 255, 255, 255))
+    frame_draw = ImageDraw.Draw(frame_img)
+    
+    # Create outer rounded rectangle (white frame)
+    frame_draw.rounded_rectangle(
+        [0, 0, width, height],
+        radius=corner_radius + frame_width//2,
+        fill=(255, 255, 255, 255)
+    )
+    
+    # Cut out inner rounded rectangle (transparent center)
+    inner_mask = Image.new('L', (width, height), 0)
+    inner_draw = ImageDraw.Draw(inner_mask)
+    inner_draw.rounded_rectangle(
+        [frame_width, frame_width, width - frame_width, height - frame_width],
+        radius=corner_radius,
+        fill=255
+    )
+    
+    # Create final frame
+    frame_alpha = Image.new('L', (width, height), 255)
+    frame_alpha.paste(0, mask=inner_mask)
+    frame_img.putalpha(frame_alpha)
+    
+    # Combine frame and gradient background
+    final_img = Image.alpha_composite(frame_img, img)
+    
+    # Add text with modern styling and multi-row support
+    draw = ImageDraw.Draw(final_img)
+    
+    # Available area for text (accounting for frame and padding)
+    text_area_width = width - (frame_width * 2) - 40  # Extra padding
+    text_area_height = height - (frame_width * 2) - 40
+    
+    # Start with larger font size and adjust for multi-row text
+    max_font_size = 120
+    min_font_size = 24
+    
+    # Function to wrap text into multiple lines
+    def wrap_text(text, font, max_width):
+        words = text.split()
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            # Test if adding this word would exceed width
+            test_line = current_line + (" " if current_line else "") + word
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            test_width = bbox[2] - bbox[0]
+            
+            if test_width <= max_width:
+                current_line = test_line
+            else:
+                # Start new line
+                if current_line:
+                    lines.append(current_line)
+                    current_line = word
+                else:
+                    # Single word is too long, force it anyway
+                    lines.append(word)
+                    current_line = ""
+        
+        if current_line:
+            lines.append(current_line)
+        
+        return lines
+    
+    # Find optimal font size that fits all text
+    font_size = max_font_size
+    font = None
+    text_lines = []
+    total_text_height = 0
+    
+    while font_size >= min_font_size:
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
+        
+        # Wrap text with current font size
+        text_lines = wrap_text(text, font, text_area_width)
+        
+        # Calculate total height needed
+        line_height = font_size + 10  # Add some line spacing
+        total_text_height = len(text_lines) * line_height
+        
+        # Check if it fits
+        if total_text_height <= text_area_height:
+            break
+        
+        # Reduce font size and try again
+        font_size -= 4
+    
+    # If still too big, use minimum font size
+    if font_size < min_font_size:
+        font_size = min_font_size
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
+        text_lines = wrap_text(text, font, text_area_width)
+    
+    # Calculate starting position for centered text
+    line_height = font_size + 10
+    total_text_height = len(text_lines) * line_height
+    start_y = (height - total_text_height) / 2
+    
+    # Add modern text shadow/outline effect for each line
+    shadow_offset = max(2, font_size // 40)  # Scale shadow with font size
+    shadow_color = (0, 0, 0, 120)  # Semi-transparent black
+    outline_width = max(1, font_size // 50)  # Scale outline with font size
+    
+    for i, line in enumerate(text_lines):
+        # Calculate position for this line
+        bbox = draw.textbbox((0, 0), line, font=font)
+        line_width = bbox[2] - bbox[0]
+        x = (width - line_width) / 2
+        y = start_y + (i * line_height)
+        
+        # Draw shadow
+        draw.text((x + shadow_offset, y + shadow_offset), line, font=font, fill=shadow_color)
+        
+        # Draw white outline for better readability
+        for offset_x in range(-outline_width, outline_width + 1):
+            for offset_y in range(-outline_width, outline_width + 1):
+                if offset_x != 0 or offset_y != 0:
+                    draw.text((x + offset_x, y + offset_y), line, font=font, fill=(255, 255, 255, 255))
+        
+        # Draw main text in contrasting color
+        text_color = (50, 50, 50, 255)  # Dark gray for good contrast
+        draw.text((x, y), line, font=font, fill=text_color)
+    
+    # Convert to RGB for WEBP (remove alpha for better compatibility)
+    rgb_img = Image.new('RGB', (width, height), (255, 255, 255))
+    rgb_img.paste(final_img, mask=final_img.split()[3])  # Use alpha as mask
+    
     # Convert to webp
     img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='WEBP')
+    rgb_img.save(img_byte_arr, format='WEBP', quality=95)
     img_byte_arr.seek(0)
 
     # Send as sticker, replying to original message if it exists
@@ -3279,6 +3441,53 @@ async def filters_list_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await message.reply_text(filters_text, parse_mode='HTML')
 
+# Define the /del_all command
+async def del_all_filters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    if not message:
+        return
+
+    # Only work in groups
+    if message.chat.type == 'private':
+        await message.reply_text("❌ This command can only be used in groups.")
+        return
+
+    # Check if user is admin
+    is_admin = await is_user_admin(context.bot, message.chat.id, message.from_user.id)
+    if not is_admin:
+        await message.reply_text("❌ Only group administrators can delete all filters.")
+        return
+
+    # Get all filters for this chat
+    chat_filters = await get_filters(message.chat.id)
+
+    if not chat_filters:
+        await message.reply_text("📝 No filters found in this group to delete.")
+        return
+
+    # Show confirmation dialog
+    filter_count = len(chat_filters)
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Delete All", callback_data=f"del_all_confirm_{message.chat.id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data=f"del_all_cancel_{message.chat.id}")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    confirm_text = f"⚠️ **Delete All Filters?**\n\n📊 **Total filters:** {filter_count}\n\n🗑️ This will permanently delete all filters in this group.\n\n**Are you sure you want to continue?**"
+
+    await message.reply_text(confirm_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def delete_all_filters(chat_id):
+    """Delete all filters for a specific chat"""
+    try:
+        result = await filters_collection.delete_many({"chat_id": chat_id})
+        return result.deleted_count
+    except Exception as e:
+        print(f"Error deleting all filters: {e}")
+        return 0
+
 # Check for filter matches in messages
 async def check_filters(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import re
@@ -3302,11 +3511,22 @@ async def check_filters(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for filter_doc in chat_filters:
         keyword = filter_doc['keyword']
 
-        # Use word boundary regex to match exact words only
-        # \b ensures we match whole words, not parts of words
-        pattern = r'\b' + re.escape(keyword) + r'\b'
+        # Create a more flexible pattern that works with Unicode characters
+        # This handles usernames (@username), Sinhala text, emojis, and regular words
+        escaped_keyword = re.escape(keyword)
+        
+        # For usernames starting with @, match them exactly
+        if keyword.startswith('@'):
+            pattern = escaped_keyword
+        else:
+            # For other text, use Unicode word boundaries that work with all languages
+            # (?<!\w) = negative lookbehind (not preceded by word character)
+            # (?!\w) = negative lookahead (not followed by word character)
+            # \w includes Unicode letters, digits, and underscores
+            pattern = r'(?<!\w)' + escaped_keyword + r'(?!\w)'
 
-        if re.search(pattern, message_text):
+        # Use re.IGNORECASE and re.UNICODE flags for better Unicode support
+        if re.search(pattern, message_text, re.IGNORECASE | re.UNICODE):
             reply_type = filter_doc['reply_type']
             reply_content = filter_doc['reply_content']
 
@@ -3705,6 +3925,31 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle refresh cancellation
     elif query.data == "refresh_cancel":
         await query.edit_message_text("❌ **Refresh cancelled.** No changes were made.")
+
+    # Handle delete all filters confirmation
+    elif query.data.startswith("del_all_confirm_"):
+        chat_id = int(query.data.split("_")[3])
+
+        # Check if user is admin again
+        is_admin = await is_user_admin(context.bot, chat_id, query.from_user.id)
+        if not is_admin:
+            await query.answer("❌ Only group administrators can delete filters.")
+            return
+
+        # Delete all filters
+        deleted_count = await delete_all_filters(chat_id)
+
+        if deleted_count > 0:
+            await query.edit_message_text(
+                f"✅ **All Filters Deleted!**\n\n🗑️ Successfully deleted {deleted_count} filters from this group.",
+                parse_mode='Markdown'
+            )
+        else:
+            await query.edit_message_text("❌ **Failed to delete filters.** Please try again.")
+
+    # Handle delete all filters cancellation
+    elif query.data.startswith("del_all_cancel_"):
+        await query.edit_message_text("❌ **Delete cancelled.** No filters were deleted.")
 
     # Handle info message deletion
     elif query.data.startswith("delete_info_"):
@@ -4123,6 +4368,7 @@ app.add_handler(CommandHandler("img", img_command))
 app.add_handler(CommandHandler("ai", ai_command))
 app.add_handler(CommandHandler("filter", filter_command))
 app.add_handler(CommandHandler("del", del_filter_command))
+app.add_handler(CommandHandler("del_all", del_all_filters_command))
 app.add_handler(CommandHandler("filters", filters_list_command))
 app.add_handler(CommandHandler("quiz", quiz_command))
 app.add_handler(MessageHandler(filters.Regex(r'^/quiz_[a-f0-9]{24}$'), quiz_id_command))
