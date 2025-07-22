@@ -175,6 +175,63 @@ async def toggle_sticker_blocker(chat_id):
     success = await save_group_config(chat_id, config)
     return success, config["sticker_blocker"]
 
+async def set_password_protection(chat_id, protected=True):
+    """Set password protection for a group"""
+    if group_configs_collection is None:
+        return False
+    
+    try:
+        # Update or create group config with password protection
+        config_doc = {
+            "chat_id": chat_id,
+            "password_protected": protected
+        }
+        
+        await group_configs_collection.update_one(
+            {"chat_id": chat_id},
+            {"$set": {"password_protected": protected}},
+            upsert=True
+        )
+        
+        # Update in-memory protected groups set
+        if protected:
+            PROTECTED_GROUPS.add(chat_id)
+        else:
+            PROTECTED_GROUPS.discard(chat_id)
+        
+        return True
+    except Exception as e:
+        print(f"Error setting password protection: {e}")
+        return False
+
+async def load_protected_groups():
+    """Load password-protected groups from MongoDB on startup"""
+    if group_configs_collection is None:
+        return
+    
+    try:
+        protected_configs = group_configs_collection.find({"password_protected": True})
+        async for config in protected_configs:
+            PROTECTED_GROUPS.add(config["chat_id"])
+        
+        print(f"Loaded {len(PROTECTED_GROUPS)} password-protected groups from database")
+    except Exception as e:
+        print(f"Error loading protected groups: {e}")
+
+async def is_password_protected(chat_id):
+    """Check if a group requires password protection"""
+    if group_configs_collection is None:
+        return chat_id in PROTECTED_GROUPS  # Fall back to hardcoded list
+    
+    try:
+        config = await group_configs_collection.find_one({"chat_id": chat_id})
+        if config:
+            return config.get("password_protected", False)
+        return False
+    except Exception as e:
+        print(f"Error checking password protection: {e}")
+        return chat_id in PROTECTED_GROUPS  # Fall back to hardcoded list
+
 
 
 async def is_user_admin(bot, chat_id, user_id):
@@ -334,8 +391,8 @@ GROUPS = {}
 # Store pending messages for group selection
 pending_messages = {}
 
-# Protected groups that require password
-PROTECTED_GROUPS = {-1002357656013, -1002279320321}
+# Protected groups that require password (will be loaded from MongoDB)
+PROTECTED_GROUPS = set()
 PROTECTED_PASSWORD = "Yashu2007"
 
 # Store pending password verification
@@ -564,6 +621,8 @@ Enjoy and have a wonderful day! 🌸😊
 ┣━ `.mute` - Mute a user (reply to their message)
 ┣━ `.mute_list` - Show muted users list  
 ┣━ `.delete` - Delete a message (reply to it)
+┣━ `/lock <group_id>` - Enable password protection for group forwarding *(Private Only)*
+┣━ `/unlock <group_id>` - Disable password protection for group forwarding *(Private Only)*
 ┗━ `/menu` - Group configuration menu *(Groups Only)*
 
 💬 **General Commands:**
@@ -1553,7 +1612,7 @@ async def stick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     width, height = 512, 512
     frame_width = 20  # White frame thickness
     corner_radius = 40  # Rounded corner radius
-    
+
     # Modern gradient colors
     gradients = [
         ['#667eea', '#764ba2'],  # Purple-blue
@@ -1565,55 +1624,55 @@ async def stick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ['#ff9a9e', '#fecfef'],  # Soft pink
         ['#667eea', '#764ba2'],  # Blue-purple
     ]
-    
+
     selected_gradient = random.choice(gradients)
-    
+
     # Create base image with transparency
     img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    
+
     # Create a mask for rounded corners
     mask = Image.new('L', (width, height), 0)
     mask_draw = ImageDraw.Draw(mask)
-    
+
     # Draw rounded rectangle mask
     mask_draw.rounded_rectangle(
         [frame_width, frame_width, width - frame_width, height - frame_width],
         radius=corner_radius,
         fill=255
     )
-    
+
     # Create gradient background
     for y in range(height):
         # Calculate gradient ratio
         ratio = y / height
-        
+
         # Parse hex colors
         color1 = tuple(int(selected_gradient[0][i:i+2], 16) for i in (1, 3, 5))
         color2 = tuple(int(selected_gradient[1][i:i+2], 16) for i in (1, 3, 5))
-        
+
         # Interpolate between colors
         r = int(color1[0] * (1 - ratio) + color2[0] * ratio)
         g = int(color1[1] * (1 - ratio) + color2[1] * ratio)
         b = int(color1[2] * (1 - ratio) + color2[2] * ratio)
-        
+
         # Draw gradient line
         draw = ImageDraw.Draw(img)
         draw.line([(0, y), (width, y)], fill=(r, g, b, 255))
-    
+
     # Apply the rounded corner mask
     img.putalpha(mask)
-    
+
     # Add white frame
     frame_img = Image.new('RGBA', (width, height), (255, 255, 255, 255))
     frame_draw = ImageDraw.Draw(frame_img)
-    
+
     # Create outer rounded rectangle (white frame)
     frame_draw.rounded_rectangle(
         [0, 0, width, height],
         radius=corner_radius + frame_width//2,
         fill=(255, 255, 255, 255)
     )
-    
+
     # Cut out inner rounded rectangle (transparent center)
     inner_mask = Image.new('L', (width, height), 0)
     inner_draw = ImageDraw.Draw(inner_mask)
@@ -1622,38 +1681,38 @@ async def stick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         radius=corner_radius,
         fill=255
     )
-    
+
     # Create final frame
     frame_alpha = Image.new('L', (width, height), 255)
     frame_alpha.paste(0, mask=inner_mask)
     frame_img.putalpha(frame_alpha)
-    
+
     # Combine frame and gradient background
     final_img = Image.alpha_composite(frame_img, img)
-    
+
     # Add text with modern styling and multi-row support
     draw = ImageDraw.Draw(final_img)
-    
+
     # Available area for text (accounting for frame and padding)
     text_area_width = width - (frame_width * 2) - 40  # Extra padding
     text_area_height = height - (frame_width * 2) - 40
-    
+
     # Start with larger font size and adjust for multi-row text
     max_font_size = 120
     min_font_size = 24
-    
+
     # Function to wrap text into multiple lines
     def wrap_text(text, font, max_width):
         words = text.split()
         lines = []
         current_line = ""
-        
+
         for word in words:
             # Test if adding this word would exceed width
             test_line = current_line + (" " if current_line else "") + word
             bbox = draw.textbbox((0, 0), test_line, font=font)
             test_width = bbox[2] - bbox[0]
-            
+
             if test_width <= max_width:
                 current_line = test_line
             else:
@@ -1665,38 +1724,38 @@ async def stick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Single word is too long, force it anyway
                     lines.append(word)
                     current_line = ""
-        
+
         if current_line:
             lines.append(current_line)
-        
+
         return lines
-    
+
     # Find optimal font size that fits all text
     font_size = max_font_size
     font = None
     text_lines = []
     total_text_height = 0
-    
+
     while font_size >= min_font_size:
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
         except:
             font = ImageFont.load_default()
-        
+
         # Wrap text with current font size
         text_lines = wrap_text(text, font, text_area_width)
-        
+
         # Calculate total height needed
         line_height = font_size + 10  # Add some line spacing
         total_text_height = len(text_lines) * line_height
-        
+
         # Check if it fits
         if total_text_height <= text_area_height:
             break
-        
+
         # Reduce font size and try again
         font_size -= 4
-    
+
     # If still too big, use minimum font size
     if font_size < min_font_size:
         font_size = min_font_size
@@ -1705,41 +1764,41 @@ async def stick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             font = ImageFont.load_default()
         text_lines = wrap_text(text, font, text_area_width)
-    
+
     # Calculate starting position for centered text
     line_height = font_size + 10
     total_text_height = len(text_lines) * line_height
     start_y = (height - total_text_height) / 2
-    
+
     # Add modern text shadow/outline effect for each line
     shadow_offset = max(2, font_size // 40)  # Scale shadow with font size
     shadow_color = (0, 0, 0, 120)  # Semi-transparent black
     outline_width = max(1, font_size // 50)  # Scale outline with font size
-    
+
     for i, line in enumerate(text_lines):
         # Calculate position for this line
         bbox = draw.textbbox((0, 0), line, font=font)
         line_width = bbox[2] - bbox[0]
         x = (width - line_width) / 2
         y = start_y + (i * line_height)
-        
+
         # Draw shadow
         draw.text((x + shadow_offset, y + shadow_offset), line, font=font, fill=shadow_color)
-        
+
         # Draw white outline for better readability
         for offset_x in range(-outline_width, outline_width + 1):
             for offset_y in range(-outline_width, outline_width + 1):
                 if offset_x != 0 or offset_y != 0:
                     draw.text((x + offset_x, y + offset_y), line, font=font, fill=(255, 255, 255, 255))
-        
+
         # Draw main text in contrasting color
         text_color = (50, 50, 50, 255)  # Dark gray for good contrast
         draw.text((x, y), line, font=font, fill=text_color)
-    
+
     # Convert to RGB for WEBP (remove alpha for better compatibility)
     rgb_img = Image.new('RGB', (width, height), (255, 255, 255))
     rgb_img.paste(final_img, mask=final_img.split()[3])  # Use alpha as mask
-    
+
     # Convert to webp
     img_byte_arr = io.BytesIO()
     rgb_img.save(img_byte_arr, format='WEBP', quality=95)
@@ -3212,6 +3271,98 @@ async def show_quiz_results(bot, chat_id, scores):
         print(f"Error showing quiz results: {e}")
         await bot.send_message(chat_id, "❌ Error displaying results.")
 
+# Define the /lock command
+async def lock_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    if not message:
+        return
+    
+    # Only work in private chat and only for primary admin
+    if message.chat.type != 'private' or str(message.from_user.id) != "8197285353":
+        return
+    
+    # Check if group ID is provided
+    if not context.args:
+        await message.reply_text("❗ Please use the command like this:\n/lock <group_id>\n\nExample: `/lock -1002357656013`")
+        return
+    
+    try:
+        group_id = int(context.args[0])
+        
+        # Check if group exists in GROUPS
+        group_key = str(group_id)
+        if group_key not in GROUPS:
+            await message.reply_text("❌ Group not found in bot's group list. The bot must be active in the group first.")
+            return
+        
+        group_info = GROUPS[group_key]
+        
+        # Set password protection
+        success = await set_password_protection(group_id, protected=True)
+        
+        if success:
+            await message.reply_text(
+                f"🔒 **Password Protection Enabled**\n\n"
+                f"📊 **Group:** {group_info['name']}\n"
+                f"🆔 **ID:** `{group_id}`\n\n"
+                f"✅ This group now requires password authentication for message forwarding.",
+                parse_mode='Markdown'
+            )
+        else:
+            await message.reply_text("❌ Failed to enable password protection. Please try again.")
+    
+    except ValueError:
+        await message.reply_text("❌ Invalid group ID. Please provide a valid numeric group ID.")
+    except Exception as e:
+        print(f"Error in lock command: {e}")
+        await message.reply_text("❌ An error occurred while setting password protection.")
+
+# Define the /unlock command
+async def unlock_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    if not message:
+        return
+    
+    # Only work in private chat and only for primary admin
+    if message.chat.type != 'private' or str(message.from_user.id) != "8197285353":
+        return
+    
+    # Check if group ID is provided
+    if not context.args:
+        await message.reply_text("❗ Please use the command like this:\n/unlock <group_id>\n\nExample: `/unlock -1002357656013`")
+        return
+    
+    try:
+        group_id = int(context.args[0])
+        
+        # Check if group exists in GROUPS
+        group_key = str(group_id)
+        if group_key not in GROUPS:
+            await message.reply_text("❌ Group not found in bot's group list. The bot must be active in the group first.")
+            return
+        
+        group_info = GROUPS[group_key]
+        
+        # Remove password protection
+        success = await set_password_protection(group_id, protected=False)
+        
+        if success:
+            await message.reply_text(
+                f"🔓 **Password Protection Disabled**\n\n"
+                f"📊 **Group:** {group_info['name']}\n"
+                f"🆔 **ID:** `{group_id}`\n\n"
+                f"✅ This group no longer requires password authentication for message forwarding.",
+                parse_mode='Markdown'
+            )
+        else:
+            await message.reply_text("❌ Failed to disable password protection. Please try again.")
+    
+    except ValueError:
+        await message.reply_text("❌ Invalid group ID. Please provide a valid numeric group ID.")
+    except Exception as e:
+        print(f"Error in unlock command: {e}")
+        await message.reply_text("❌ An error occurred while removing password protection.")
+
 # Define the /wiki command for Wikipedia summaries
 async def wiki_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
@@ -3514,7 +3665,7 @@ async def check_filters(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Create a more flexible pattern that works with Unicode characters
         # This handles usernames (@username), Sinhala text, emojis, and regular words
         escaped_keyword = re.escape(keyword)
-        
+
         # For usernames starting with @, match them exactly
         if keyword.startswith('@'):
             pattern = escaped_keyword
@@ -4192,7 +4343,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         group_info = GROUPS[group_key]
 
         # Check if this is a protected group
-        if int(group_key) in PROTECTED_GROUPS:
+        if await is_password_protected(int(group_key)):
             # Store the pending forward request
             pending_password_verification[query.from_user.id] = {
                 'group_key': group_key,
@@ -4366,6 +4517,8 @@ app.add_handler(CommandHandler("wiki", wiki_command))
 app.add_handler(CommandHandler("img", img_command))
 
 app.add_handler(CommandHandler("ai", ai_command))
+app.add_handler(CommandHandler("lock", lock_command))
+app.add_handler(CommandHandler("unlock", unlock_command))
 app.add_handler(CommandHandler("filter", filter_command))
 app.add_handler(CommandHandler("del", del_filter_command))
 app.add_handler(CommandHandler("del_all", del_all_filters_command))
@@ -4434,9 +4587,33 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-try:
+async def initialize_bot():
+    """Initialize bot with database data"""
+    await load_protected_groups()
+
+# Initialize bot data before starting
+async def main():
+    """Main function to run the bot with proper asyncio handling"""
+    await initialize_bot()
     print("Bot is running...")
-    app.run_polling(allowed_updates=["message", "callback_query"], drop_pending_updates=True)
-except Exception as e:
-    print(f"Error running bot: {e}")
-    sys.exit(1)
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(allowed_updates=["message", "callback_query"], drop_pending_updates=True)
+    
+    # Keep the bot running
+    try:
+        await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        print("Stopping bot...")
+    finally:
+        await app.stop()
+        await app.shutdown()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot stopped by user")
+    except Exception as e:
+        print(f"Error running bot: {e}")
+        sys.exit(1)
